@@ -4,7 +4,7 @@
 
 ## What this is
 
-jevvin-off is a scratch repo for prototyping against TypeSafe's "Jev" System One API, which turns natural language plus application state into typed judgments (choice / noul / score) that ordinary code can act on. Two independent examples live under `examples/`: `quickstart.ts` judges one support ticket with three questions in a single request and routes on the answers in plain code, and `at-proto/` streams the live Bluesky Jetstream firehose, filters posts mechanically, and sends batches of them to Jev. Nothing here is a product surface; the repo exists to find out what the API is good for and what it is not.
+jevvin-off is a scratch repo for prototyping against TypeSafe's "Jev" System One API, which turns natural language plus application state into typed judgments (choice / noul / score) that ordinary code can act on. Two independent examples live under `examples/`: `quickstart.ts` judges one support ticket with three questions in a single request and routes on the answers in plain code, and `at-proto/` streams the live Bluesky Jetstream firehose, filters posts mechanically, and sends each admitted post to Jev in its own request. Nothing here is a product surface; the repo exists to find out what the API is good for and what it is not.
 
 ## Stack & runtime
 
@@ -21,7 +21,7 @@ jevvin-off is a scratch repo for prototyping against TypeSafe's "Jev" System One
 Only directories whose purpose is not obvious from their name.
 
 - `examples` — Two independent demos that never import each other: `quickstart.ts` (single ticket, three judgments) and `at-proto/` (firehose prototype).
-- `examples/at-proto` — `index.ts` is the CLI driver and the only file that calls Jev; `jetstream.ts` is the worker owning socket, backoff and a bounded buffer; `filter.ts` is the pure structural filter (no I/O); `types.ts` holds the wire frames and the worker protocol; `filter.test.ts` is the only test.
+- `examples/at-proto` — `index.ts` is the CLI driver and the only file that calls Jev; `jetstream.ts` is the worker owning socket, backoff and a bounded queue; `filter.ts` is the pure structural filter (no I/O); `types.ts` holds the wire frames and the worker protocol; `filter.test.ts` is the only test.
 - `.agents/skills/typesafe-ai/SKILL.md` — Vendored upstream skill pinned by hash in `skills-lock.json`. Read it before designing judgments; do not edit it here.
 - `tmp` — Gitignored scratch space, currently empty. Keep throwaway scripts here, not in `examples/`.
 
@@ -52,12 +52,12 @@ Tags: `[verified]` — GRWM resolved this command's runner and read its version 
 - Structure stays in code, meaning goes to Jev: `filter.ts` never judges topic, spam or tone, and `quickstart.ts` compares `confidence`, `score` and `noul` against thresholds in plain `if` statements.
 - A Jev call is one `state` object plus a flat map of named `questions`, all answered independently in a single `TypeSafeClient().systemOne` request. The model supplies judgments; routing rules stay in the caller.
 - Relative imports without extensions (`./filter`), ESM only: no path aliases, no barrel files, no index re-exports.
-- Pure logic and transport stay in separate files: `filter.ts` imports only `types.ts`; the socket, backoff and buffering live in `jetstream.ts`.
-- Module-level `const` in SCREAMING_SNAKE carries every tunable (`REVIEW_THRESHOLD`, `BUFFER_CAP`, `DEDUPE_CAP`, `PULL_TIMEOUT_MS`). Numbers that came from measurement keep the measurement in the comment — see the 15s firehose sample in `filter.ts`.
+- Pure logic and transport stay in separate files: `filter.ts` imports only `types.ts`; the socket, backoff and queueing live in `jetstream.ts`.
+- Module-level `const` in SCREAMING_SNAKE carries every tunable (`REVIEW_THRESHOLD`, `QUEUE_CAP`, `DEDUPE_CAP`, `PULL_TIMEOUT_MS`). Numbers that came from measurement keep the measurement in the comment — see the 15s firehose sample in `filter.ts`.
 - File headers explain the design decision and the measured numbers, not the mechanics. Match that style when editing or adding an example.
 - Pitfall: Never print, log or commit `TYPESAFE_API_KEY`. It lives in the untracked `.env` next to a live key; the SDK reads it, and nothing in the repo should echo it.
 - Pitfall: Every `systemOne` call is a paid request to `api.typesafe.ai`. The at-proto example accepts `--dry-run`, which skips the Jev half entirely and needs no key — use it for any change to the worker or the filter.
-- Pitfall: The at-proto prototype streams a public firehose that never ends, and its worker buffer drops the oldest posts once Jev falls behind. Anything short of a deliberate soak needs a bound on the elapsed seconds, because every forwarded batch is billable.
+- Pitfall: The at-proto prototype streams a public firehose that never ends, and its worker queue drops the oldest posts once Jev falls behind. Anything short of a deliberate soak needs a bound on the elapsed seconds, because every judged post is a billable request.
 - Pitfall: The printer in `examples/at-proto/index.ts` is explicitly marked PLACEHOLDER — printing the Jev answers is not the designed output. Designing that output is the open work, not a bug to patch.
 - Pitfall: A global regex is stateful through `lastIndex` when used with `.test()`. `filter.ts` deliberately keeps two compiled patterns (`URL_TEST_RE` non-global, `URL_STRIP_RE` global) for this reason; reusing the global one makes admission depend on call order.
 - Pitfall: The two lockfiles, `bun.lock` and `skills-lock.json`, are generated. Change `package.json` and re-resolve; never hand-edit either one.
@@ -66,7 +66,7 @@ Tags: `[verified]` — GRWM resolved this command's runner and read its version 
 
 ## Notes
 
-- Second entry point: the `at-proto` package script starts `examples/at-proto/index.ts`. It is flag-driven (`--seconds`, `--batch`, `--dry-run`, `--langs`, `--include-replies`), and the header of that file is the authoritative list — read it before starting the prototype.
+- Second entry point: the `at-proto` package script starts `examples/at-proto/index.ts`. It is flag-driven (`--seconds`, `--dry-run`, `--langs`, `--include-replies`), and the header of that file is the authoritative list — read it before starting the prototype.
 - No CI configuration exists, so no required checks are documented here; the local test and typecheck commands above are the whole gate.
 
 ## Agent tooling in this repo

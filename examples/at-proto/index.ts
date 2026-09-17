@@ -1,13 +1,18 @@
 /**
  * at-proto: Jev over the live AT Protocol firehose.
  *
- *   Jetstream (worker, filtered)  →  batch of posts  →  Jev  →  placeholder output
+ *   Jetstream (worker, filtered)  →  one post  →  Jev  →  placeholder output
  *
  * Usage:
  *   bun run examples/at-proto/index.ts
- *   bun run examples/at-proto/index.ts --seconds=120 --batch=10 --dry-run
+ *   bun run examples/at-proto/index.ts --seconds=120 --dry-run
  *   bun run examples/at-proto/index.ts --langs=en,ja --include-replies
- *   bun run examples/at-proto/index.ts --batch=1 --seconds=30   # one post per call
+ *   bun run examples/at-proto/index.ts --model=<id> --seconds=30
+ *
+ * One post per request: a judgment answers a question about one post, so
+ * `is_spam: true` means the same thing every time it comes back. Jev is slower
+ * than the firehose, so the worker drops queued posts instead of building a
+ * backlog — a run judges a sample of the stream, not all of it.
  *
  * Requires TYPESAFE_API_KEY for the Jev half; `--dry-run` skips it and only
  * exercises the worker + filter.
@@ -26,7 +31,6 @@ const ENDPOINT = "wss://jetstream.us-east.bsky.network/xrpc/network.bsky.jetstre
 
 type Options = {
   seconds: number;
-  batch: number;
   dryRun: boolean;
   filter: FilterConfig;
   model?: string;
@@ -41,7 +45,6 @@ function parseArgs(argv: string[]): Options {
 
   return {
     seconds: Number(flag("seconds") ?? 60),
-    batch: Math.max(1, Number(flag("batch") ?? 8)),
     dryRun: has("dry-run"),
     model: flag("model"),
     filter: {
@@ -53,10 +56,10 @@ function parseArgs(argv: string[]): Options {
   };
 }
 
-/** The slice of each post Jev sees. State carries text and facts; questions carry the judgment. */
-function toState(posts: Post[]) {
+/** The slice of one post Jev sees. State carries text and facts; questions carry the judgment. */
+function toState(post: Post) {
   return {
-    posts: posts.map((post) => ({
+    post: {
       uri: post.uri,
       author: post.did,
       text: post.text,
@@ -65,20 +68,18 @@ function toState(posts: Post[]) {
       isReply: post.isReply,
       media: post.media,
       hasLinks: post.hasLinks,
-    })),
-    note: "A batch of public Bluesky posts sampled from the live firehose.",
+    },
+    note: "One public Bluesky post, sampled from the live firehose.",
   };
 }
 
-function questionsFor(posts: Post[]) {
-  const single = posts.length === 1;
-  const subject = single ? "this post" : "this batch of posts";
+function questionsFor() {
   return {
-    is_spam: noul(`Do ${subject} contain spam, scams, or coordinated promotion?`, {
+    is_spam: noul("Does this post contain spam, scams, or coordinated promotion?", {
       true: "Advertising, scams, follow-farming, or copy-pasted promotion",
       false: "Ordinary conversation, news, or personal posting",
     }),
-    topic: choice(`What is the dominant topic across ${subject}?`, {
+    topic: choice("What is the dominant topic of this post?", {
       news_politics: "Current events, elections, policy, war",
       tech: "Software, AI, science, engineering",
       sports: "Games, teams, athletes, results",
@@ -87,7 +88,7 @@ function questionsFor(posts: Post[]) {
       promo: "Selling something, self-promotion, links to products",
       other: "Nothing above fits",
     }),
-    sentiment: score(`How positive is the overall tone of ${subject}?`, [
+    sentiment: score("How positive is the tone of this post?", [
       "Bleak, angry, or distressed",
       "Mostly negative or complaining",
       "Mixed or neutral",
@@ -100,47 +101,34 @@ function questionsFor(posts: Post[]) {
 /**
  * PLACEHOLDER OUTPUT — this is the part we have not designed yet.
  *
- * TODO: decide what at-proto should actually produce from a batch: a rolling
+ * TODO: decide what at-proto should actually produce per post: a rolling
  * digest, topic routing, spam quarantine, alerting on spikes? Until then this
- * prints the batch and every typed answer, so we can look at real values first.
+ * prints the post and its typed answers, so we can look at real values first.
  */
-function report(
-  index: number,
-  posts: Post[],
-  answers: Record<string, unknown> | undefined,
-  stats: FilterStats,
-): void {
-  console.log(`\n── batch ${index} ── ${posts.length} post(s) ─────────────────────────`);
-  for (const post of posts) {
-    const author = post.did.slice("did:plc:".length, "did:plc:".length + 8);
-    const flags = [
-      post.isReply ? "reply" : "top-level",
-      post.media.length ? post.media.join("+") : "",
-      post.hasLinks ? "links" : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
-    console.log(`  ${author}  [${flags}]  ${post.text.replace(/\s+/g, " ").slice(0, 88)}`);
-  }
+function report(index: number, post: Post, answers: Record<string, unknown> | undefined): void {
+  const author = post.did.slice("did:plc:".length, "did:plc:".length + 8);
+  const flags = [
+    post.isReply ? "reply" : "top-level",
+    post.media.length ? post.media.join("+") : "",
+    post.hasLinks ? "links" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  console.log(`\n── post ${index} ── ${author}  [${flags}]`);
+  console.log(`  ${post.text.replace(/\s+/g, " ").slice(0, 88)}`);
   if (answers) {
-    // One entry per question id — each an answer about the whole batch, not per post.
-    console.log(`  answers (1 per question, about all ${posts.length} posts):`);
     for (const [id, answer] of Object.entries(answers)) {
-      console.log(`    ${id.padEnd(10)} ${JSON.stringify(answer)}`);
+      console.log(`  ${id.padEnd(10)} ${JSON.stringify(answer)}`);
     }
   }
-  const dropped = Object.entries(stats.dropped)
-    .map(([reason, count]) => `${reason}=${count}`)
-    .join(" ");
-  console.log(`  stream: received=${stats.received} matched=${stats.matched} dropped: ${dropped}`);
 }
 
-function summary(stats: FilterStats, batches: number, elapsedSeconds: number, interrupted: boolean): void {
+function summary(stats: FilterStats, calls: number, elapsedSeconds: number, interrupted: boolean): void {
   const { received, matched } = stats;
   console.log(`\n${"═".repeat(64)}`);
   console.log(`jetstream: ${received} events in ${elapsedSeconds.toFixed(0)}s (${(received / elapsedSeconds).toFixed(1)}/s)${interrupted ? " [interrupted]" : ""}`);
   console.log(`matched:   ${matched} kept (${((matched / Math.max(received, 1)) * 100).toFixed(1)}%)`);
-  console.log(`jev:       ${batches} batch(es)`);
+  console.log(`jev:       ${calls} call(s), one post each`);
   const total = Object.values(stats.dropped).reduce((sum, n) => sum + n, 0);
   for (const [reason, count] of Object.entries(stats.dropped).sort((a, b) => b[1] - a[1])) {
     console.log(`  dropped ${reason.padEnd(16)} ${String(count).padStart(5)}  ${((count / Math.max(total, 1)) * 100).toFixed(1)}%`);
@@ -155,7 +143,7 @@ async function main(): Promise<number> {
   const worker = new Worker(new URL("./jetstream.ts", import.meta.url).href);
 
   let stats: FilterStats = { received: 0, matched: 0, dropped: {} };
-  let resolvePull: ((message: Extract<WorkerResponse, { type: "batch" }>) => void) | undefined;
+  let resolvePull: ((message: Extract<WorkerResponse, { type: "next" }>) => void) | undefined;
 
   worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
     const message = event.data;
@@ -176,10 +164,10 @@ async function main(): Promise<number> {
     filter: options.filter,
   } satisfies WorkerRequest);
 
-  const pull = (max: number) =>
-    new Promise<Extract<WorkerResponse, { type: "batch" }>>((resolve) => {
+  const pull = () =>
+    new Promise<Extract<WorkerResponse, { type: "next" }>>((resolve) => {
       resolvePull = resolve;
-      worker.postMessage({ type: "pull", max } satisfies WorkerRequest);
+      worker.postMessage({ type: "pull" } satisfies WorkerRequest);
     });
 
   // A SIGINT listener suppresses the default exit, so this handler has to do
@@ -190,12 +178,12 @@ async function main(): Promise<number> {
   const interrupt = () => {
     if (stopping) process.exit(130);
     stopping = true;
-    console.error("\ninterrupted — finishing the batch and summarising");
+    console.error("\ninterrupted — finishing the request in flight and summarising");
     controller.abort();
     worker.postMessage({ type: "stop" } satisfies WorkerRequest);
     const resolve = resolvePull;
     resolvePull = undefined;
-    resolve?.({ type: "batch", posts: [], stats, connected: false });
+    resolve?.({ type: "next", post: null, stats, connected: false });
   };
   process.on("SIGINT", interrupt);
   process.on("SIGTERM", interrupt);
@@ -203,29 +191,30 @@ async function main(): Promise<number> {
   console.log(
     `consuming ${COLLECTION} from jetstream for ${options.seconds}s\n` +
       `filter: langs=${options.filter.languages.join(",")} minLength=${options.filter.minLength} ` +
-      `topLevelOnly=${options.filter.topLevelOnly} batch=${options.batch}` +
+      `topLevelOnly=${options.filter.topLevelOnly}` +
       (options.dryRun ? " [dry run: no Jev calls]" : ""),
   );
 
   const client = options.dryRun ? undefined : new TypeSafeClient();
-  let batches = 0;
+  let calls = 0;
 
   while (!stopping && Date.now() < deadline) {
-    const batch = await pull(options.batch);
-    if (stopping || batch.posts.length === 0) continue;
-    batches += 1;
+    const next = await pull();
+    if (stopping || !next.post) continue;
+    const post = next.post;
+    calls += 1;
 
     if (!client) {
-      report(batches, batch.posts, undefined, batch.stats);
+      report(calls, post, undefined);
       continue;
     }
 
-    const questions = questionsFor(batch.posts);
+    const questions = questionsFor();
     let response: SystemOneResult<typeof questions>;
     try {
       response = await client.systemOne(
         {
-          state: toState(batch.posts),
+          state: toState(post),
           questions,
           ...(options.model ? { model: options.model } : {}),
         },
@@ -235,27 +224,22 @@ async function main(): Promise<number> {
       if (controller.signal.aborted) break; // interrupted mid-call: expected
       if (error instanceof TypeSafeError) {
         console.error(`jev request failed: ${error.message}`);
-        if (batches === 1) return 1; // most likely a credentials problem; don't loop on it
+        if (calls === 1) return 1; // most likely a credentials problem; don't loop on it
         continue;
       }
       throw error;
     }
 
-    report(
-      batches,
-      batch.posts,
-      {
-        model: response.model,
-        ...response.answers,
-        tokens: response.usage.input_tokens + response.usage.output_tokens,
-      },
-      batch.stats,
-    );
+    report(calls, post, {
+      model: response.model,
+      ...response.answers,
+      tokens: response.usage.input_tokens + response.usage.output_tokens,
+    });
   }
 
   worker.postMessage({ type: "stop" } satisfies WorkerRequest);
   worker.terminate();
-  summary(stats, batches, (Date.now() - started) / 1000, stopping);
+  summary(stats, calls, (Date.now() - started) / 1000, stopping);
   return stopping ? 130 : 0;
 }
 

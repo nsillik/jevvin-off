@@ -3,10 +3,11 @@
  *
  * Runs the socket, the filter, and the counters off the main thread, so the
  * firehose never competes with the Jev calls for the event loop. Flow control
- * is pull-based: the worker holds matched posts in a bounded buffer and hands
- * them over a batch at a time, when the main thread asks. Jev is far slower
- * than the stream, so the buffer overflows and drops the oldest posts — this
- * samples the network rather than pretending to evaluate all of it.
+ * is pull-based: the worker holds matched posts in a bounded queue and hands
+ * them over one at a time, when the main thread asks. One post per Jev request,
+ * and Jev is far slower than the stream, so the queue overflows and drops the
+ * oldest posts — this samples the network rather than pretending to evaluate
+ * all of it.
  */
 
 import { createFilter, type Filter } from "./filter";
@@ -25,7 +26,13 @@ declare const self: {
   onmessage: ((event: MessageEvent<WorkerRequest>) => void) | null;
 };
 
-const BUFFER_CAP = 200;
+/**
+ * Queue capacity, in posts. Sized from one measured run (15s, live firehose):
+ * the filter admitted ~14 posts/s while Jev answered at ~3.8 calls/s (≈260ms
+ * per call), so the queue grew ~10 posts/s and never overflowed. A longer run
+ * exhausts it and drops the oldest posts.
+ */
+const QUEUE_CAP = 200;
 const PULL_TIMEOUT_MS = 2000;
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 15_000;
@@ -40,9 +47,9 @@ let connected = false;
 let stopped = false;
 let cursor: number | undefined;
 
-const buffer: Post[] = [];
+const queue: Post[] = [];
 const stats: FilterStats = { received: 0, matched: 0, dropped: {} };
-let pendingPull: { max: number; timer: ReturnType<typeof setTimeout> } | undefined;
+let pendingPull: { timer: Timer } | undefined;
 
 function post(message: WorkerResponse): void {
   self.postMessage(message);
@@ -52,22 +59,24 @@ function countDrop(reason: DropReason): void {
   stats.dropped[reason] = (stats.dropped[reason] ?? 0) + 1;
 }
 
-function batchOf(max: number, posts: Post[]): WorkerResponse {
+function nextResponse(post: Post | null): WorkerResponse {
   return {
-    type: "batch",
-    posts,
+    type: "next",
+    post,
     stats: { ...stats, dropped: { ...stats.dropped } },
     connected,
   };
 }
 
-/** Answer a waiting pull, now that the buffer has something worth sending. */
+/**
+ * Answer a waiting pull: the next queued post, or `null` when the timer fires
+ * on an empty queue.
+ */
 function flushPull(): void {
   if (!pendingPull) return;
-  const { max, timer } = pendingPull;
+  clearTimeout(pendingPull.timer);
   pendingPull = undefined;
-  clearTimeout(timer);
-  post(batchOf(max, buffer.splice(0, Math.min(max, buffer.length))));
+  post(nextResponse(queue.shift() ?? null));
 }
 
 function buildUrl(): string {
@@ -115,13 +124,13 @@ function connect(): void {
     if (admittedPost.seq !== undefined) cursor = admittedPost.seq;
 
     stats.matched += 1;
-    if (buffer.length >= BUFFER_CAP) {
-      buffer.shift();
-      countDrop("buffer-overflow");
+    if (queue.length >= QUEUE_CAP) {
+      queue.shift();
+      countDrop("queue-overflow");
     }
-    buffer.push(admittedPost);
-    // Hand over only once the batch is full, or the pull deadline lapses.
-    if (pendingPull && buffer.length >= pendingPull.max) flushPull();
+    queue.push(admittedPost);
+    // One post per Jev request: hand it over as soon as the caller asks.
+    if (pendingPull) flushPull();
   };
 
   opened.onerror = () => {
@@ -150,13 +159,13 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       break;
     }
     case "pull": {
-      // A full batch keeps one Jev request busy with several posts; the timer
-      // stops a slow stream from stalling the loop indefinitely.
-      if (buffer.length >= message.max) {
-        post(batchOf(message.max, buffer.splice(0, message.max)));
+      // Answer immediately when a post is queued; otherwise wait out the pull
+      // deadline so a quiet stream cannot stall the caller forever.
+      if (queue.length > 0) {
+        post(nextResponse(queue.shift() ?? null));
         break;
       }
-      pendingPull = { max: message.max, timer: setTimeout(flushPull, PULL_TIMEOUT_MS) };
+      pendingPull = { timer: setTimeout(flushPull, PULL_TIMEOUT_MS) };
       break;
     }
     case "stop": {

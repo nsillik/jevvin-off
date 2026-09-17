@@ -71,7 +71,7 @@ export type DropReason =
   | "duplicate"
   | "no-record"
   | "unparseable"
-  | "buffer-overflow";
+  | "queue-overflow";
 
 export type FilterStats = {
   received: number;
@@ -86,9 +86,13 @@ export type WorkerRequest =
       collection: string;
       filter: FilterConfig;
     }
-  | { type: "pull"; max: number }
+  | { type: "pull" }
   | { type: "stop" };
 
+/**
+ * A pull is answered with one post, or `post: null` if the queue is still empty
+ * when the worker's deadline lapses — the caller asks again.
+ */
 export type WorkerResponse =
-  | { type: "batch"; posts: Post[]; stats: FilterStats; connected: boolean }
+  | { type: "next"; post: Post | null; stats: FilterStats; connected: boolean }
   | { type: "log"; message: string };
