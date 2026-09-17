@@ -6,7 +6,6 @@
  * Usage:
  *   bun run examples/at-proto/index.ts
  *   bun run examples/at-proto/index.ts --seconds=120 --batch=10 --dry-run
- *   bun run examples/at-proto/index.ts --endpoint=v1        # the legacy socket
  *   bun run examples/at-proto/index.ts --langs=en,ja --include-replies
  *   bun run examples/at-proto/index.ts --batch=1 --seconds=30   # one post per call
  *
@@ -22,16 +21,12 @@ import type { FilterConfig, FilterStats, Post, WorkerRequest, WorkerResponse } f
 
 const COLLECTION = "app.bsky.feed.post";
 
-/** v2 is the documented endpoint for new consumers; v1 is the legacy `/subscribe`. */
-const ENDPOINTS: Record<"v1" | "v2", string> = {
-  v1: "wss://jetstream1.us-east.bsky.network/subscribe",
-  v2: "wss://jetstream.us-east.bsky.network/xrpc/network.bsky.jetstream.subscribeEvents",
-};
+/** The v2 live tail; `collections` + `kinds` narrow it server-side (see jetstream.ts). */
+const ENDPOINT = "wss://jetstream.us-east.bsky.network/xrpc/network.bsky.jetstream.subscribeEvents";
 
 type Options = {
   seconds: number;
   batch: number;
-  version: "v1" | "v2";
   dryRun: boolean;
   filter: FilterConfig;
   model?: string;
@@ -47,7 +42,6 @@ function parseArgs(argv: string[]): Options {
   return {
     seconds: Number(flag("seconds") ?? 60),
     batch: Math.max(1, Number(flag("batch") ?? 8)),
-    version: (flag("endpoint") ?? "v2") as "v1" | "v2",
     dryRun: has("dry-run"),
     model: flag("model"),
     filter: {
@@ -177,8 +171,7 @@ async function main(): Promise<number> {
 
   worker.postMessage({
     type: "init",
-    endpoint: ENDPOINTS[options.version],
-    version: options.version,
+    endpoint: ENDPOINT,
     collection: COLLECTION,
     filter: options.filter,
   } satisfies WorkerRequest);
@@ -208,7 +201,7 @@ async function main(): Promise<number> {
   process.on("SIGTERM", interrupt);
 
   console.log(
-    `consuming ${COLLECTION} from jetstream ${options.version} for ${options.seconds}s\n` +
+    `consuming ${COLLECTION} from jetstream for ${options.seconds}s\n` +
       `filter: langs=${options.filter.languages.join(",")} minLength=${options.filter.minLength} ` +
       `topLevelOnly=${options.filter.topLevelOnly} batch=${options.batch}` +
       (options.dryRun ? " [dry run: no Jev calls]" : ""),

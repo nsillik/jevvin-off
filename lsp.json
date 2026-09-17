@@ -1,0 +1,22 @@
+{
+  "servers": {
+    "typescript": {
+      "command": "typescript-language-server",
+      "args": [
+        "--stdio"
+      ],
+      "fileTypes": [
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".cjs"
+      ],
+      "rootMarkers": [
+        "tsconfig.json",
+        "package.json"
+      ]
+    }
+  }
+}

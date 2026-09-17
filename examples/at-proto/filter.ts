@@ -13,7 +13,7 @@
  * firehose: posts are 12% of it (likes 65%, reposts 10%, follows 8%).
  */
 
-import type { DropReason, FilterConfig, Post, PostRecord, V1Frame, V2Frame } from "./types";
+import type { DropReason, FilterConfig, Post, PostRecord, V2Frame } from "./types";
 
 export const DEFAULT_FILTER: FilterConfig = {
   languages: ["en"],
@@ -40,34 +40,21 @@ type Admit =
   | { ok: false; reason: DropReason };
 
 /** The admission test produced by {@link createFilter}. */
-export type Filter = (frame: V1Frame | V2Frame) => Admit;
+export type Filter = (frame: V2Frame) => Admit;
 
-/** Fold either wire shape into the fields this example cares about. */
+/** Unwrap the envelope: the commit, or null if this frame is not one. */
 function commitFields(
-  frame: V1Frame | V2Frame,
-): { did: string; operation: string; collection: string; rkey: string; record?: PostRecord; seq?: number; timeUs?: number } | null {
-  const v1 = frame as V1Frame;
-  if (v1.kind !== undefined || v1.commit !== undefined) {
-    if (v1.kind !== "commit" || !v1.commit) return null;
-    return {
-      did: v1.did ?? "",
-      operation: v1.commit.operation ?? "",
-      collection: v1.commit.collection ?? "",
-      rkey: v1.commit.rkey ?? "",
-      record: v1.commit.record,
-      timeUs: v1.time_us,
-    };
-  }
-
-  const v2 = (frame as V2Frame).payload;
-  if (!v2 || !(v2.$type ?? "").endsWith("#commit")) return null;
+  frame: V2Frame,
+): { did: string; operation: string; collection: string; rkey: string; record?: PostRecord; seq?: number } | null {
+  const payload = frame.payload;
+  if (!payload || !(payload.$type ?? "").endsWith("#commit")) return null;
   return {
-    did: v2.did ?? "",
-    operation: v2.operation ?? "",
-    collection: v2.collection ?? "",
-    rkey: v2.rkey ?? "",
-    record: v2.record,
-    seq: v2.seq,
+    did: payload.did ?? "",
+    operation: payload.operation ?? "",
+    collection: payload.collection ?? "",
+    rkey: payload.rkey ?? "",
+    record: payload.record,
+    seq: payload.seq,
   };
 }
 
@@ -88,7 +75,7 @@ function hasLinkFacet(record: PostRecord): boolean {
 }
 
 /** Convert a raw frame into a `Post`, or report why it cannot be one. */
-export function normalize(frame: V1Frame | V2Frame): Post | DropReason {
+export function normalize(frame: V2Frame): Post | DropReason {
   const commit = commitFields(frame);
   if (!commit) return "not-commit";
   if (commit.operation !== "create") return "not-create";
@@ -110,7 +97,6 @@ export function normalize(frame: V1Frame | V2Frame): Post | DropReason {
     langs: record.langs ?? [],
     createdAt: record.createdAt,
     seq: commit.seq,
-    timeUs: commit.timeUs,
     isReply: reply,
     isSelfThread: reply && rootUri.startsWith(`at://${did}/`),
     media: embedKinds(record),
@@ -139,7 +125,7 @@ export function createFilter(config: FilterConfig): Filter {
     return true;
   }
 
-  return function admit(frame: V1Frame | V2Frame): Admit {
+  return function admit(frame: V2Frame): Admit {
     const normalized = normalize(frame);
     if (typeof normalized === "string") return { ok: false, reason: normalized };
     const post = normalized;

@@ -1,27 +1,12 @@
 /**
  * Shared types for the at-proto example.
  *
- * Two wire shapes are supported, because the public service exposes both:
- *   v2 — https://bsky.network/docs/jetstream   (recommended, has `seq` for resume)
- *   v1 — the legacy `/subscribe` socket (timestamps in `time_us`)
- * Both are normalized to `Post` before anything downstream sees them.
+ * One wire shape: the v2 live tail (https://bsky.network/docs/jetstream), an
+ * envelope whose `payload` is tagged by `$type`. Every frame is normalized to
+ * `Post` before anything downstream sees it.
  */
 
-/** v1 (legacy) frame: fields at the top level, `time_us` in unix microseconds. */
-export type V1Frame = {
-  did?: string;
-  time_us?: number;
-  kind?: string;
-  commit?: {
-    rev?: string;
-    operation?: string;
-    collection?: string;
-    rkey?: string;
-    record?: PostRecord;
-  };
-};
-
-/** v2 frame: an envelope whose `payload` is tagged by `$type`. */
+/** A Jetstream frame: event envelope, with the commit itself under `payload`. */
 export type V2Frame = {
   $type?: string;
   payload?: {
@@ -56,8 +41,8 @@ export type Post = {
   text: string;
   langs: string[];
   createdAt?: string;
+  /** v2 sequence number; the resume cursor for a reconnect. */
   seq?: number;
-  timeUs?: number;
   isReply: boolean;
   isSelfThread: boolean;
   media: string[]; // embed kinds, e.g. ["images"], ["external"], ["record"], ["video"]
@@ -98,7 +83,6 @@ export type WorkerRequest =
   | {
       type: "init";
       endpoint: string;
-      version: "v1" | "v2";
       collection: string;
       filter: FilterConfig;
     }

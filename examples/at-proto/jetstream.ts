@@ -14,7 +14,6 @@ import type {
   DropReason,
   FilterStats,
   Post,
-  V1Frame,
   V2Frame,
   WorkerRequest,
   WorkerResponse,
@@ -31,7 +30,7 @@ const PULL_TIMEOUT_MS = 2000;
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 15_000;
 
-type Target = { endpoint: string; version: "v1" | "v2"; collection: string };
+type Target = { endpoint: string; collection: string };
 
 let target: Target | undefined;
 let admit: Filter | undefined;
@@ -39,7 +38,7 @@ let socket: WebSocket | undefined;
 let backoffMs = BACKOFF_MIN_MS;
 let connected = false;
 let stopped = false;
-let cursor: { seq?: number; timeUs?: number } = {};
+let cursor: number | undefined;
 
 const buffer: Post[] = [];
 const stats: FilterStats = { received: 0, matched: 0, dropped: {} };
@@ -74,14 +73,9 @@ function flushPull(): void {
 function buildUrl(): string {
   if (!target) throw new Error("worker received a pull before init");
   const url = new URL(target.endpoint);
-  if (target.version === "v1") {
-    url.searchParams.set("wantedCollections", target.collection);
-  } else {
-    url.searchParams.set("collections", target.collection);
-    url.searchParams.set("kinds", "commit");
-  }
-  const resume = cursor.seq ?? cursor.timeUs;
-  if (resume !== undefined) url.searchParams.set("cursor", String(resume));
+  url.searchParams.set("collections", target.collection);
+  url.searchParams.set("kinds", "commit");
+  if (cursor !== undefined) url.searchParams.set("cursor", String(cursor));
   return url.toString();
 }
 
@@ -93,16 +87,16 @@ function connect(): void {
   opened.onopen = () => {
     connected = true;
     backoffMs = BACKOFF_MIN_MS;
-    post({ type: "log", message: `connected to ${target?.version} jetstream` });
+    post({ type: "log", message: `connected to ${target?.endpoint}` });
   };
 
   opened.onmessage = (event) => {
     if (typeof event.data !== "string") return;
     stats.received += 1;
 
-    let frame: V1Frame | V2Frame;
+    let frame: V2Frame;
     try {
-      frame = JSON.parse(event.data) as V1Frame | V2Frame;
+      frame = JSON.parse(event.data) as V2Frame;
     } catch {
       countDrop("unparseable");
       return;
@@ -115,10 +109,10 @@ function connect(): void {
       return;
     }
 
-    // Remember where we are for reconnect; v2 sequences, v1 microsecond stamps.
+    // Remember where we are for reconnect. The cursor is inclusive and delivery
+    // is at-least-once, so the dedupe windows absorb the replay.
     const { post: admittedPost } = admitted;
-    if (admittedPost.seq !== undefined) cursor = { seq: admittedPost.seq };
-    else if (admittedPost.timeUs !== undefined) cursor = { timeUs: admittedPost.timeUs };
+    if (admittedPost.seq !== undefined) cursor = admittedPost.seq;
 
     stats.matched += 1;
     if (buffer.length >= BUFFER_CAP) {
@@ -149,7 +143,6 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
     case "init": {
       target = {
         endpoint: message.endpoint,
-        version: message.version,
         collection: message.collection,
       };
       admit = createFilter(message.filter);

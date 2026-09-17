@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_FILTER, createFilter, normalize } from "./filter";
-import type { FilterConfig, Post, V1Frame, V2Frame } from "./types";
+import type { Filter } from "./filter";
+import type { FilterConfig, Post, V2Frame } from "./types";
 
 const URI = "at://did:plc:abc123/app.bsky.feed.post/3kabc";
 const TEXT = "Reorganizing a room is basically telling everything you own get rotated";
@@ -21,44 +22,28 @@ function v2(record: Record<string, unknown>, overrides: Record<string, unknown> 
   };
 }
 
-function v1(record: Record<string, unknown>): V1Frame {
-  return {
-    did: "did:plc:abc123",
-    kind: "commit",
-    time_us: 1_780_000_000_000_000,
-    commit: {
-      operation: "create",
-      collection: "app.bsky.feed.post",
-      rkey: "3kabc",
-      record,
-    },
-  };
-}
-
-function keep(filter: ReturnType<typeof createFilter>, frame: V1Frame | V2Frame): Post | string {
+function keep(filter: Filter, frame: V2Frame): Post | string {
   const admitted = filter(frame);
   return admitted.ok ? admitted.post : admitted.reason;
 }
 
 describe("normalize", () => {
-  test("v1 and v2 frames produce the same post", () => {
-    const record = { $type: "app.bsky.feed.post", text: TEXT, langs: ["en"] };
-    const fromV1 = normalize(v1(record));
-    const fromV2 = normalize(v2(record));
-    if (typeof fromV1 === "string" || typeof fromV2 === "string") {
-      throw new Error(`expected posts, got ${fromV1} / ${fromV2}`);
-    }
-    expect(fromV1.uri).toBe(URI);
-    expect(fromV1.text).toBe(fromV2.text);
-    expect(fromV1.langs).toEqual(fromV2.langs);
-    expect(fromV1.uri).toBe(fromV2.uri);
-    // v2 carries the resume cursor, v1 the microsecond stamp.
-    expect(fromV2.seq).toBe(42);
-    expect(fromV1.timeUs).toBe(1_780_000_000_000_000);
+  test("folds a commit frame into a post", () => {
+    const post = normalize(v2({ $type: "app.bsky.feed.post", text: TEXT, langs: ["en"] }));
+    if (typeof post === "string") throw new Error(`expected a post, got ${post}`);
+    expect(post.uri).toBe(URI);
+    expect(post.text).toBe(TEXT);
+    expect(post.langs).toEqual(["en"]);
+    expect(post.seq).toBe(42); // the resume cursor
   });
 
   test("rejects non-commit, non-create, and recordless commits", () => {
-    expect(normalize({ kind: "identity", did: "did:plc:abc123" })).toBe("not-commit");
+    expect(
+      normalize({
+        $type: "message",
+        payload: { $type: "network.bsky.jetstream.subscribeEvents#identity", did: "did:plc:abc123" },
+      }),
+    ).toBe("not-commit");
     expect(normalize(v2({ text: TEXT }, { operation: "delete", record: undefined }))).toBe(
       "not-create",
     );

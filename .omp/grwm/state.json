@@ -1,0 +1,218 @@
+{
+  "toolVersion": "0.1.0",
+  "catalogVersion": "0.1.0",
+  "createdAt": "2026-09-17T15:04:05.298Z",
+  "repo": {
+    "name": "javvin-off",
+    "stack": [
+      "bun"
+    ]
+  },
+  "files": [
+    {
+      "path": "lsp.json",
+      "surface": "lsp",
+      "sha256": "55cfd79dcaec68d8dda07f3e8d24f6fecf875ea36a81178e9b6eb225f8ccc418",
+      "bytes": 341,
+      "createdAt": "2026-09-17T15:04:05.298Z",
+      "evidence": []
+    }
+  ],
+  "probeLedger": [
+    {
+      "kind": "which",
+      "target": "bun",
+      "ok": true,
+      "evidence": "/Users/nsillik/.local/share/mise/shims/bun",
+      "durationMs": 10,
+      "key": "bun"
+    },
+    {
+      "kind": "binary",
+      "target": "bun --version",
+      "ok": true,
+      "evidence": "1.4.2",
+      "code": 0,
+      "durationMs": 31,
+      "key": "bun"
+    },
+    {
+      "kind": "which",
+      "target": "typescript-language-server",
+      "ok": false,
+      "evidence": "not found on PATH or in project-local bin directories",
+      "error": "not-found",
+      "durationMs": 0,
+      "key": "typescript-language-server"
+    },
+    {
+      "kind": "binary",
+      "target": "typescript-language-server --version",
+      "ok": false,
+      "evidence": "typescript-language-server did not resolve; not executing",
+      "error": "not-found",
+      "durationMs": 1,
+      "key": "typescript-language-server"
+    },
+    {
+      "kind": "which",
+      "target": "vscode-json-language-server",
+      "ok": false,
+      "evidence": "not found on PATH or in project-local bin directories",
+      "error": "not-found",
+      "durationMs": 1,
+      "key": "vscode-json-language-server"
+    },
+    {
+      "kind": "which",
+      "target": "npx",
+      "ok": true,
+      "evidence": "/Users/nsillik/.local/state/fnm_multishells/10079_1789653044935/bin/npx",
+      "durationMs": 0,
+      "key": "npx"
+    },
+    {
+      "kind": "binary",
+      "target": "npx --version",
+      "ok": true,
+      "evidence": "11.16.0",
+      "code": 0,
+      "durationMs": 65,
+      "key": "npx"
+    },
+    {
+      "kind": "which",
+      "target": "uvx",
+      "ok": true,
+      "evidence": "/opt/homebrew/bin/uvx",
+      "durationMs": 1,
+      "key": "uvx"
+    },
+    {
+      "kind": "which",
+      "target": "marksman",
+      "ok": false,
+      "evidence": "not found on PATH or in project-local bin directories",
+      "error": "not-found",
+      "durationMs": 0,
+      "key": "marksman"
+    },
+    {
+      "kind": "json-parse",
+      "target": "package.json",
+      "ok": true,
+      "evidence": "valid JSON · keys: name, private, type, scripts, dependencies, devDependencies",
+      "durationMs": 0,
+      "key": "package.json"
+    },
+    {
+      "kind": "json-parse",
+      "target": "tsconfig.json",
+      "ok": true,
+      "evidence": "valid JSON · keys: compilerOptions, include",
+      "durationMs": 1,
+      "key": "tsconfig.json"
+    },
+    {
+      "kind": "json-parse",
+      "target": "skills-lock.json",
+      "ok": true,
+      "evidence": "valid JSON · keys: version, skills",
+      "durationMs": 0,
+      "key": "skills-lock.json"
+    },
+    {
+      "kind": "ls",
+      "target": "examples",
+      "ok": true,
+      "evidence": "2 entries: at-proto/, quickstart.ts",
+      "durationMs": 0,
+      "key": "examples"
+    },
+    {
+      "kind": "glob-count",
+      "target": "**/*.test.ts",
+      "ok": false,
+      "evidence": "rejected by the probe allowlist: `file` contains shell metacharacters: **/*.test.ts",
+      "durationMs": 0,
+      "error": "rejected",
+      "key": "**/*.test.ts"
+    },
+    {
+      "kind": "git",
+      "target": "git log --no-merges --pretty=%s -n 20",
+      "ok": true,
+      "evidence": "Initial commit",
+      "code": 0,
+      "durationMs": 8,
+      "key": "git log --no-merges --pretty=%s -n 20"
+    },
+    {
+      "kind": "git",
+      "target": "git status --porcelain",
+      "ok": true,
+      "evidence": "exit 0",
+      "code": 0,
+      "durationMs": 9,
+      "key": "git status --porcelain"
+    },
+    {
+      "kind": "git",
+      "target": "git config --get remote.origin.url",
+      "ok": false,
+      "evidence": "Command failed: git config --get remote.origin.url",
+      "code": 1,
+      "error": "Command failed: git config --get remote.origin.url",
+      "durationMs": 7,
+      "key": "git config --get remote.origin.url"
+    },
+    {
+      "kind": "which",
+      "target": "typescript-language-server",
+      "ok": true,
+      "evidence": "/Users/nsillik/.local/state/fnm_multishells/10079_1789653044935/bin/typescript-language-server",
+      "durationMs": 1,
+      "key": "typescript-language-server"
+    },
+    {
+      "kind": "binary",
+      "target": "typescript-language-server --version",
+      "ok": true,
+      "evidence": "6.0.0",
+      "code": 0,
+      "durationMs": 175,
+      "key": "typescript-language-server"
+    },
+    {
+      "kind": "binary",
+      "target": "typescript-language-server --help",
+      "ok": true,
+      "evidence": "Usage: typescript-language-server [options]",
+      "code": 0,
+      "durationMs": 44,
+      "key": "typescript-language-server"
+    },
+    {
+      "kind": "which",
+      "target": "tsserver",
+      "ok": false,
+      "evidence": "not found on PATH or in project-local bin directories",
+      "error": "not-found",
+      "durationMs": 1,
+      "key": "tsserver"
+    }
+  ],
+  "phases": [
+    {
+      "phase": "scan",
+      "at": "2026-09-17T14:50:35.434Z",
+      "summary": "scanned /Users/nsillik/Development/javvin-off: 4 gap(s)"
+    },
+    {
+      "phase": "prompt",
+      "at": "2026-09-17T14:50:35.434Z",
+      "summary": "handing control to the model (full); 15 files walked"
+    }
+  ],
+  "secretFindings": 0
+}
