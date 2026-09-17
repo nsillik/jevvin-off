@@ -3,7 +3,7 @@
   "catalogVersion": "0.1.0",
   "createdAt": "2026-09-17T15:04:05.298Z",
   "repo": {
-    "name": "javvin-off",
+    "name": "jevvin-off",
     "stack": [
       "bun"
     ]
@@ -206,7 +206,7 @@
     {
       "phase": "scan",
       "at": "2026-09-17T14:50:35.434Z",
-      "summary": "scanned /Users/nsillik/Development/javvin-off: 4 gap(s)"
+      "summary": "scanned /Users/nsillik/Development/jevvin-off: 4 gap(s)"
     },
     {
       "phase": "prompt",

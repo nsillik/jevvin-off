@@ -1,8 +1,8 @@
-# GRWM report — javvin-off
+# GRWM report — jevvin-off
 
 - Tool: omp-grwm 0.1.0 · catalog 0.1.0
 
-- Repository: `javvin-off`
+- Repository: `jevvin-off`
 - Git: branch `main`
 - Scanned: 2026-09-17T15:04:05.298Z
 
