@@ -18,11 +18,10 @@
  * local model instead of the hosted one, so nothing is billed and no key is
  * needed. The trade is a hard input budget: the ANE exports allow 96 tokens for
  * the question, its options and the post text together, and refuse a request
- * that does not fit rather than truncating it. Measured over two 30s samples of
- * live stream: 13-14ms per post at 6-8% of wall time, and about a quarter of
- * the posts refused as over budget — Japanese, Hindi and long English posts,
- * mostly. `--dry-run` skips the model entirely and exercises only the worker
- * and the filter.
+ * that does not fit rather than truncating it. Measured on live-stream samples:
+ * ~15ms per post at 6-12% of wall time, and 16% of posts refused as over budget
+ * — non-English and long ones, which no wording fixes. `--dry-run` skips the
+ * model entirely and exercises only the worker and the filter.
  */
 
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -46,17 +45,19 @@ const DEFAULT_MODEL = join(PROJECT_DIR, "models", "ane");
  * The judgments, in the model's own shape.
  *
  * Same three dimensions as at-proto, worded to fit 96 tokens alongside the post
- * text. The topic options carry labels and no descriptions: option text comes
- * out of the same budget as the state, and two-word descriptions cost 26 tokens
- * of post room, which measured as a 36% refusal rate on the live stream.
+ * text. Option and criteria text comes out of the same budget as the state, and
+ * the longest question is what decides whether a post can be judged at all:
+ * measured prefixes are is_spam 31, topic 29, sentiment 31, which leaves 64
+ * tokens (about 320 characters) for the post. Longer wording costs refusals —
+ * described topic options and five sentiment levels measured 36%.
  */
 const QUESTIONS: LocalQuestions = {
   is_spam: {
     type: "noul",
     instructions: "Does this post contain spam or promotion?",
     criteria: {
-      false: "ordinary conversation, news or a personal post",
-      true: "advertising, scams or copy-pasted promotion",
+      false: "ordinary conversation or news",
+      true: "advertising, scams or promotion",
     },
   },
   topic: {
@@ -75,7 +76,7 @@ const QUESTIONS: LocalQuestions = {
   sentiment: {
     type: "score",
     instructions: "How positive is the tone?",
-    criteria: ["angry", "negative", "neutral", "positive", "upbeat"],
+    criteria: ["negative", "neutral", "positive"],
   },
 };
 
