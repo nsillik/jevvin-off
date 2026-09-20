@@ -1,0 +1,6 @@
+[project]
+name = "at-proto-local"
+version = "0.0.0"
+description = "Jetstream posts judged locally by the Laya Core ML decision model"
+requires-python = ">=3.11,<3.14"
+dependencies = ["laya-coreml>=0.1.0"]

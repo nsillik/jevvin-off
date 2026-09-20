@@ -4,7 +4,7 @@
 
 ## What this is
 
-jevvin-off is a scratch repo for prototyping against TypeSafe's "Jev" System One API, which turns natural language plus application state into typed judgments (choice / noul / score) that ordinary code can act on. Two independent examples live under `examples/`: `quickstart.ts` judges one support ticket with three questions in a single request and routes on the answers in plain code, and `at-proto/` streams the live Bluesky Jetstream firehose, filters posts mechanically, and sends each admitted post to Jev in its own request. Nothing here is a product surface; the repo exists to find out what the API is good for and what it is not.
+jevvin-off is a scratch repo for prototyping against TypeSafe's "Jev" System One API, which turns natural language plus application state into typed judgments (choice / noul / score) that ordinary code can act on. Two independent examples live under `examples/`: `quickstart.ts` judges one support ticket with three questions in a single request and routes on the answers in plain code, and `at-proto/` streams the live Bluesky Jetstream firehose, filters posts mechanically, and sends each admitted post to Jev in its own request; `examples/at-proto-local/` runs the same pipeline against a model on this Mac — an open-weight Laya Core ML bundle driven through a Python sidecar, with no key and nothing billed. Nothing here is a product surface; the repo exists to find out what the API is good for and what it is not.
 
 ## Stack & runtime
 
@@ -15,13 +15,15 @@ jevvin-off is a scratch repo for prototyping against TypeSafe's "Jev" System One
 - `tsconfig.json` includes only `examples/**/*.ts`, so a module placed anywhere else typechecks as if it did not exist.
 - One runtime dependency: `@typesafe-ai/sdk` 0.6.0 (pre-1.0). Its programming model is vendored at `.agents/skills/typesafe-ai/SKILL.md`; live docs are at docs.typesafe.ai.
 - Runtime configuration is entirely `TYPESAFE_*` environment variables read by the SDK, never by repo code. `.env` is gitignored and Bun loads it automatically.
+- `examples/at-proto-local` adds a second runtime: Python 3.11–3.13 via `uv` (`.venv/` and `uv.lock` are generated) with the `laya-coreml` package, which runs a Core ML bundle on the CPU + Neural Engine. Bun never loads the model; it spawns `sidecar.py` with `uv run` and speaks newline-delimited JSON to it.
 
 ## Layout
 
 Only directories whose purpose is not obvious from their name.
 
-- `examples` — Two independent demos that never import each other: `quickstart.ts` (single ticket, three judgments) and `at-proto/` (firehose prototype).
+- `examples` — Three demos that never import each other: `quickstart.ts` (single ticket, three judgments), `at-proto/` (firehose prototype on hosted Jev) and `at-proto-local/` (the same firehose pipeline on a local Core ML model).
 - `examples/at-proto` — `index.ts` is the CLI driver and the only file that calls Jev; `jetstream.ts` is the worker owning socket, backoff and a bounded queue; `filter.ts` is the pure structural filter (no I/O); `types.ts` holds the wire frames and the worker protocol; `filter.test.ts` is the only test.
+- `examples/at-proto-local` — `index.ts` drives the same pipeline and owns the CLI; `judge.ts` is the transport to the model; `sidecar.py` is the Python process that loads the Core ML bundle once and answers one JSON request per line; `pyproject.toml` pins `laya-coreml`. `jetstream.ts`, `filter.ts`, `types.ts` and `filter.test.ts` are deliberate copies of the at-proto versions (examples do not import each other), with the local model's extra drop reason and protocol types added.
 - `.agents/skills/typesafe-ai/SKILL.md` — Vendored upstream skill pinned by hash in `skills-lock.json`. Read it before designing judgments; do not edit it here.
 - `tmp` — Gitignored scratch space, currently empty. Keep throwaway scripts here, not in `examples/`.
 
@@ -29,28 +31,31 @@ Only directories whose purpose is not obvious from their name.
 
 Tags: `[verified]` — GRWM resolved this command's runner and read its version this session; `[from manifest]` — declared in a package manifest; `[from ci:<file>]` — a step in that workflow; `[unverified — confirm]` — observed but never executed.
 
-- test: `bun run test` [verified: /Users/nsillik/.local/share/mise/shims/bun] — Bun's built-in runner; the only suite is examples/at-proto/filter.test.ts. Append a path substring to run a single file.
+- test: `bun run test` [verified: /Users/nsillik/.local/share/mise/shims/bun] — Bun's built-in runner; the suites are examples/at-proto/filter.test.ts and examples/at-proto-local/filter.test.ts. Append a path substring to run a single file.
 - typecheck: `bun run typecheck` [verified: /Users/nsillik/.local/share/mise/shims/bun] — tsc --noEmit, scoped to examples/**/*.ts by tsconfig.json.
 - dev: `bun run start` [verified: /Users/nsillik/.local/share/mise/shims/bun] — Runs examples/quickstart.ts. Needs TYPESAFE_API_KEY and makes a paid call to api.typesafe.ai on every run.
+- dev-local: `bun run at-proto-local` [verified: /Users/nsillik/.local/share/mise/shims/bun] — Runs the firehose example against the local Core ML bundle. Needs `uv sync` and the bundle under `examples/at-proto-local/models/ane` (see the file header); no key, nothing billed, ~20s of Core ML init before the stream starts.
+- dev-proto: `bun run at-proto` [verified: /Users/nsillik/.local/share/mise/shims/bun] — Runs the hosted-Jev firehose example; `--dry-run` skips the model half and needs no key.
 
 ## Contribution workflow
 
-- Branches: Single branch `main`; no git remote is configured and there are two commits so far.
-- Commit style: Not established — both commits are 'Initial commit' variants. Short imperative subjects are the safe default.
+- Branches: Single branch `main`, pushed to github.com/nsillik/jevvin-off (`origin`).
+- Commit style: Short imperative subjects with a body explaining the design decision (see the at-proto and rename commits).
 - Review: No CI exists. `bun run test` and `bun run typecheck` are the only gates; run both before calling a change done.
 
 ## Testing notes
 
 - `bun run test` runs Bun's own runner (`bun:test`); there is no vitest/jest, no test config file, and no coverage setup.
-- Run a single file by appending a path substring to the test command. The only suite is `examples/at-proto/filter.test.ts`, covering `normalize` and the admission decisions of `createFilter`.
+- Run a single file by appending a path substring to the test command. Both suites cover `normalize` and the admission decisions of `createFilter`, one per firehose example.
 - Fixtures are built in the test file: `filter.test.ts` defines a `v2(record, overrides)` helper that builds a Jetstream commit frame. No network, no mocks, no snapshot files.
-- `filter.ts` is pure — no I/O and no `process.env` — so filter and normalization changes are testable without an API key or a socket. Transport lives only in `jetstream.ts`.
-- Nothing covers `quickstart.ts` or the Jev call path itself; testing those needs a live key or a stub.
+- `filter.ts` is pure — no I/O and no `process.env` — so filter and normalization changes are testable without an API key, a socket or the model. Transport lives only in `jetstream.ts` and `judge.ts`.
+- Nothing covers `quickstart.ts`, the Jev call path, or the Laya sidecar; testing those needs a live key, a stub, or the downloaded bundle.
 
 ## Conventions & pitfalls
 
-- Structure stays in code, meaning goes to Jev: `filter.ts` never judges topic, spam or tone, and `quickstart.ts` compares `confidence`, `score` and `noul` against thresholds in plain `if` statements.
+- Structure stays in code, meaning goes to the model: `filter.ts` never judges topic, spam or tone, and `quickstart.ts` compares `confidence`, `score` and `noul` against thresholds in plain `if` statements.
 - A Jev call is one `state` object plus a flat map of named `questions`, all answered independently in a single `TypeSafeClient().systemOne` request. The model supplies judgments; routing rules stay in the caller.
+- The local model answers the same three primitives and returns the same answer shapes (`type`/`choice`/`score`/`noul`/`probabilities`/`confidence`), so `report` logic ports between the two firehose examples unchanged. One difference: a local `systemOne` call makes one forward pass per question, because the ANE bundles are batch-1.
 - Relative imports without extensions (`./filter`), ESM only: no path aliases, no barrel files, no index re-exports.
 - Pure logic and transport stay in separate files: `filter.ts` imports only `types.ts`; the socket, backoff and queueing live in `jetstream.ts`.
 - Module-level `const` in SCREAMING_SNAKE carries every tunable (`REVIEW_THRESHOLD`, `QUEUE_CAP`, `DEDUPE_CAP`, `PULL_TIMEOUT_MS`). Numbers that came from measurement keep the measurement in the comment — see the 15s firehose sample in `filter.ts`.
@@ -60,13 +65,18 @@ Tags: `[verified]` — GRWM resolved this command's runner and read its version 
 - Pitfall: The at-proto prototype streams a public firehose that never ends, and its worker queue drops the oldest posts once Jev falls behind. Anything short of a deliberate soak needs a bound on the elapsed seconds, because every judged post is a billable request.
 - Pitfall: The printer in `examples/at-proto/index.ts` is explicitly marked PLACEHOLDER — printing the Jev answers is not the designed output. Designing that output is the open work, not a bug to patch.
 - Pitfall: A global regex is stateful through `lastIndex` when used with `.test()`. `filter.ts` deliberately keeps two compiled patterns (`URL_TEST_RE` non-global, `URL_STRIP_RE` global) for this reason; reusing the global one makes admission depend on call order.
-- Pitfall: The two lockfiles, `bun.lock` and `skills-lock.json`, are generated. Change `package.json` and re-resolve; never hand-edit either one.
+- Pitfall: The two lockfiles, `bun.lock` and `skills-lock.json`, are generated. Change `package.json` and re-resolve; never hand-edit either one. `examples/at-proto-local/uv.lock` is generated the same way, from its `pyproject.toml`.
+- Pitfall: The Core ML bundle is 649MB and gitignored (`examples/at-proto-local/models/`). Never commit it; re-create it with the `hf download` line in `examples/at-proto-local/index.ts`.
+- Pitfall: The ANE bundles are fixed-shape and **refuse** a request over 96 tokens rather than truncating it, so a long or non-English post is dropped as `capacity` (measured: ~25% of admitted posts on the live stream). `sidecar.py` counts tokens through the library's own `prepare` path before calling the model, so a refusal costs no inference. Switching to `--model=aac6fef/laya-multilingual-coreml` (1024 tokens, CPU + GPU) removes the wall at a latency cost.
+- Pitfall: Core ML init costs ~20s cold, so the sidecar loads once per run and the driver opens the socket only after the model is warm. Spawning the bundle per post, or connecting first, fills the queue with posts nothing can judge yet.
+- Pitfall: The ANE runtime prints three `RuntimeWarning`s from `ane.py` (divide by zero, overflow, invalid value in the host action-head matmul) once each per process. They are benign here — answers stay calibrated and `act_probability` reads 1.0 — but they are not something this repo fixed.
 - Pitfall: The vendored skill under `.agents/skills/typesafe-ai/` is upstream content pinned by `computedHash`. Fix it upstream, not in this tree.
-- Pitfall: The two examples do not import each other — `quickstart.ts` and `at-proto/` are independent demonstrations of the same SDK surface. There is no shared module to reuse between them.
+- Pitfall: The three examples do not import each other — `quickstart.ts`, `at-proto/` and `at-proto-local/` are independent demonstrations, and `at-proto-local/filter.ts` is a deliberate copy rather than a shared module. Change one and change its copy.
 
 ## Notes
 
 - Second entry point: the `at-proto` package script starts `examples/at-proto/index.ts`. It is flag-driven (`--seconds`, `--dry-run`, `--langs`, `--include-replies`), and the header of that file is the authoritative list — read it before starting the prototype.
+- Third entry point: the `at-proto-local` package script starts `examples/at-proto-local/index.ts`, flag-driven (`--seconds`, `--dry-run`, `--langs`, `--include-replies`, `--model`, `--offline`, `--compute-units`) with the header as the authoritative list. `--model` takes a bundle directory or a Hub id and defaults to `examples/at-proto-local/models/ane`; a local directory never touches the Hub, and `--offline` makes that a hard guarantee.
 - No CI configuration exists, so no required checks are documented here; the local test and typecheck commands above are the whole gate.
 
 ## Agent tooling in this repo

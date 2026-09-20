@@ -1,3 +1,5 @@
 tmp/
 .env
 node_modules/
+examples/at-proto-local/.venv/
+examples/at-proto-local/models/

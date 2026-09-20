@@ -5,6 +5,7 @@
   "scripts": {
     "start": "bun run examples/quickstart.ts",
     "at-proto": "bun run examples/at-proto/index.ts",
+    "at-proto-local": "bun run examples/at-proto-local/index.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
