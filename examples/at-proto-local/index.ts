@@ -20,8 +20,17 @@
  * the question, its options and the post text together, and refuse a request
  * that does not fit rather than truncating it. Measured on live-stream samples:
  * ~15ms per post at 6-12% of wall time, and 16% of posts refused as over budget
- * — non-English and long ones, which no wording fixes. `--dry-run` skips the
- * model entirely and exercises only the worker and the filter.
+ * — non-English and long ones, which no wording fixes.
+ *
+ * The runtime is a port; the judgments are the model's own. Measured on a short
+ * ambiguous post ("Uh can't they shoot thru nets🧐"), Laya answered spam 0.94 /
+ * topic tech / tone most-negative at 0.86-0.94 confidence, where hosted Jev
+ * answered spam 0.02 / sports 0.70 / mixed-neutral 0.84 on the same text.
+ * Rewording the questions moved topic to `other`, never to sports. This example
+ * is about the runtime shape — free, local, one post per request — not quality
+ * parity with Jev.
+ *
+ * `--dry-run` skips the model entirely and exercises only the worker and filter.
  */
 
 import { dirname, isAbsolute, join, resolve } from "node:path";
